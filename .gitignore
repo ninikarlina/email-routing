@@ -1,18 +1,18 @@
-# ─── Node.js ────────────────────────────────────
+# ── Dependencies ──────────────────────────────────────────────
 node_modules/
-npm-debug.log*
-yarn-error.log
+.npm/
 
-# ─── Wrangler / Cloudflare ───────────────────────
+# ── Cloudflare Wrangler ───────────────────────────────────────
 .wrangler/
+dist/
+
+# ── Secrets — JANGAN pernah di-commit ke GitHub! ─────────────
+.env
 .dev.vars
 
-# ─── File lokal berisi rahasia (JANGAN COMMIT!) ──
-.env
-.env.local
-.env.*.local
-secrets.json
-
-# ─── OS ─────────────────────────────────────────
+# ── OS & Editor ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+.vscode/settings.json
+*.swp
+*.swo

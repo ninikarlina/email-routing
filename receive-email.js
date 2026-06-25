@@ -2,12 +2,14 @@ import PostalMime from "postal-mime";
 
 export default {
     async email(message, env, ctx) {
-        // Dibaca dari Cloudflare Workers Secrets (aman, tidak hardcoded)
+        // ── Baca secrets dari Cloudflare Workers Environment ─────
+        // Set via: wrangler secret put TELEGRAM_BOT_TOKEN
+        //          wrangler secret put TELEGRAM_CHAT_ID
         const botToken = env.TELEGRAM_BOT_TOKEN;
-        const chatId = env.TELEGRAM_CHAT_ID;
+        const chatId   = env.TELEGRAM_CHAT_ID;
 
         if (!botToken || !chatId) {
-            console.error("❌ TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diset di Cloudflare!");
+            console.error("[ERROR] TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diset di Cloudflare Workers secrets!");
             return;
         }
 

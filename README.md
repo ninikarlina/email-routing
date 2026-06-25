@@ -1,102 +1,99 @@
-# 📧 Email Routing OTP — Cloudflare Workers
-
-Cloudflare Email Routing Worker yang meneruskan email masuk (OTP, link konfirmasi, dll.) ke Telegram secara otomatis.
-
-Dibuat untuk kebutuhan KKN-T 02 UNIRA 2026 — Desa Srigonco Bantur.
+# 📧 Email Routing Extractor
+> Cloudflare Workers untuk meneruskan email masuk (OTP, konfirmasi, dll.) ke Telegram secara otomatis.
 
 ---
 
 ## ✨ Fitur
-
-- Parsing MIME email otomatis menggunakan **postal-mime**
-- Mendukung: `multipart/alternative`, `multipart/mixed`, Quoted-Printable, Base64, nested parts
-- Fallback HTML-stripping jika tidak ada versi `text/plain`
-- Teks bersih dikirim ke Telegram (tanpa CSS/HTML)
+- Parsing MIME email otomatis via **postal-mime** (multipart, QP, Base64, nested)
+- Strip CSS/HTML — hanya teks bersih yang dikirim ke Telegram
+- Mendukung email dari ChatGPT, DeepSeek, onlinesim.io, Google, GitHub, dll.
+- Web dashboard sederhana untuk verifikasi Worker aktif
 
 ---
 
-## 🗂️ Struktur File
+## 🚀 Cara Deploy
+
+### 1. Clone & Install
+```bash
+git clone https://github.com/USERNAME/REPO.git
+cd REPO
+npm install
+```
+
+### 2. Login ke Cloudflare
+```bash
+npx wrangler login
+```
+
+### 3. Set Secrets (Token Telegram)
+Jangan pernah taruh token langsung di kode! Gunakan perintah ini:
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+# → Masukkan token bot Anda (dari @BotFather)
+
+npx wrangler secret put TELEGRAM_CHAT_ID
+# → Masukkan Chat ID Anda (dari @userinfobot)
+```
+
+### 4. Deploy
+```bash
+npx wrangler deploy
+```
+
+### 5. Aktifkan Email Routing di Cloudflare
+Di dashboard Cloudflare → **Email** → **Email Routing** → tambahkan rule:
+- **Action**: Send to Worker
+- **Destination**: Worker ini
+
+---
+
+## 🧪 Testing Lokal (Simulasi)
+
+Salin file `.env.example` menjadi `.dev.vars` lalu isi dengan nilai asli:
+```bash
+cp .env.example .dev.vars
+# Edit .dev.vars dengan token asli Anda
+```
+
+Jalankan simulasi parsing email:
+```bash
+node test-simulate.mjs
+```
+
+---
+
+## 📁 Struktur File
 
 ```
-.
-├── receive-email.js    # Worker utama (Cloudflare Email Handler)
-├── test-simulate.mjs   # Simulasi lokal sebelum deploy
-├── wrangler.toml       # Konfigurasi Cloudflare Workers
-├── package.json
-├── .env.example        # Contoh env vars (aman di-commit)
+├── receive-email.js    # Cloudflare Worker utama
+├── test-simulate.mjs   # Simulasi lokal untuk testing
+├── wrangler.toml       # Konfigurasi Wrangler
+├── .env.example        # Template variabel lingkungan (commit ke GitHub)
+├── .dev.vars           # Secret lokal (JANGAN commit — sudah di .gitignore)
 └── .gitignore
 ```
 
 ---
 
-## 🔧 Setup Awal
+## 🔒 Keamanan
 
-### 1. Install dependencies
+| File | Di-commit ke GitHub? | Keterangan |
+|---|---|---|
+| `.env.example` | ✅ Ya | Hanya template, tanpa nilai asli |
+| `.dev.vars` | ❌ Tidak | Secrets lokal, di-ignore |
+| `wrangler.toml` | ✅ Ya | Tidak mengandung secret |
+
+Secrets production disimpan di **Cloudflare Workers Secrets** (terenkripsi), bukan di file.
+
+---
+
+## 🛠️ Update Kode
+
+Setelah edit `receive-email.js`, deploy ulang cukup:
 ```bash
-npm install
-```
-
-### 2. Set secrets ke Cloudflare (JANGAN hardcode di kode!)
-```bash
-wrangler secret put TELEGRAM_BOT_TOKEN
-# → masukkan token bot Anda, lalu Enter
-
-wrangler secret put TELEGRAM_CHAT_ID
-# → masukkan Chat ID Anda, lalu Enter
-```
-
-### 3. Untuk development lokal, buat file `.dev.vars`
-```bash
-# File ini sudah di .gitignore, aman untuk rahasia lokal
-echo 'TELEGRAM_BOT_TOKEN=token_anda' >> .dev.vars
-echo 'TELEGRAM_CHAT_ID=chat_id_anda' >> .dev.vars
+npx wrangler deploy
 ```
 
 ---
 
-## 🧪 Jalankan Simulasi Lokal
-
-Sebelum deploy, uji parser dengan email palsu:
-
-```bash
-node test-simulate.mjs
-```
-
-Output yang diharapkan:
-```
-📊  HASIL: 5 lulus, 0 gagal dari 5 test
-🚀  Semua test lulus! Aman untuk deploy ke Cloudflare.
-```
-
----
-
-## 🚀 Deploy ke Cloudflare
-
-```bash
-wrangler deploy
-```
-
----
-
-## ⚙️ Konfigurasi Email Routing di Cloudflare
-
-1. Masuk ke **Cloudflare Dashboard** → pilih domain Anda
-2. Buka menu **Email** → **Email Routing**
-3. Aktifkan Email Routing
-4. Tambah rule: `*@domain.anda` → **Send to Worker** → pilih worker ini
-5. Pastikan domain MX record sudah mengarah ke Cloudflare
-
----
-
-## 🔐 Keamanan
-
-| File | Boleh di-commit? | Keterangan |
-|------|:-:|---|
-| `receive-email.js` | ✅ | Tidak ada rahasia |
-| `wrangler.toml` | ✅ | Tidak ada rahasia |
-| `.env.example` | ✅ | Hanya template kosong |
-| `.dev.vars` | ❌ | Ada rahasia lokal |
-| `.env` | ❌ | Ada rahasia |
-| `node_modules/` | ❌ | Terlalu besar |
-
-Bot Token dan Chat ID disimpan sebagai **Cloudflare Secret** (terenkripsi), bukan di kode atau Git.
+*KKN-T 02 UNIRA 2026 — Desa Srigonco Bantur*
