@@ -1,4 +1,7 @@
 import PostalMime from "postal-mime";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { extractOTP: libExtractOTP } = require("@onedaydevelopers/otp-detector");
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║              KONFIGURASI FALLBACK (LOKAL)               ║
@@ -16,31 +19,30 @@ const CONFIG = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// ── Ekstraksi OTP/Kode — Teknik yang sama dengan Gmail ──────
+// ── Ekstraksi OTP/Kode — Hybrid: Library + Custom fallback ──
 //
-// Gmail menggunakan strategi berlapis untuk mendeteksi OTP:
-// 1. Konteks kata kunci dekat angka  → "Your code: 382910"
-// 2. Angka menonjol standalone       → "  836 291  " (terpencil)
-// 3. Magic link verifikasi           → URL https://...verify...
-// 4. Kode di subject email           → "Your code is 123456"
+// Strategi:
+// 1. @onedaydevelopers/otp-detector → context-aware OTP angka (lebih akurat)
+// 2. Custom regex                   → fallback untuk link verifikasi & edge case
 // ═══════════════════════════════════════════════════════════
 
 function extractOtp(text, subject = "") {
-    // ── Strategi 1: Konteks kata kunci + angka (paling akurat) ──
-    // Cari pola "kata_kunci: ANGKA" atau "ANGKA adalah kata_kunci"
+    // ── Prioritas 1: Library (lebih akurat untuk OTP angka) ──
+    try {
+        const libResult = libExtractOTP(text);
+        if (libResult !== null && libResult !== undefined) {
+            return String(libResult);
+        }
+    } catch (_) { /* library gagal, lanjut ke custom */ }
+
+    // ── Prioritas 2: Custom regex (keyword patterns) ──────────
     const keywordPatterns = [
-        // "code: 123456" / "code is: 123456" / "kode: 123456"
         /(?:code|kode|otp|pin|token|password sementara|verification|verifikasi|confirmation|konfirmasi|security code|passcode)\s+(?:is\s*)?[:\-–]?\s*([0-9][\d\s]{3,9}\d)/i,
-        // "123456 is your code"
         /\b([\d][\d\s]{3,9}\d)\s+(?:is\s+your|adalah|merupakan)?\s*(?:code|kode|otp|pin|token|verification)/i,
-        // "use code 123456" / "enter 123456"
         /(?:use|enter|input|masukkan|gunakan)\s+(?:code\s+|kode\s+)?([0-9][\d\s]{3,9}\d)/i,
-        // "Your X code is: 123456"
         /your\s+\w+\s+(?:code|otp|pin)\s+is\s*:?\s*([0-9][\d\s]{3,9}\d)/i,
-        // "G-482917" (Google style)
         /\bG-([0-9]{6})\b/i,
     ];
-
     for (const pattern of keywordPatterns) {
         const match = text.match(pattern);
         if (match) {
@@ -49,12 +51,10 @@ function extractOtp(text, subject = "") {
         }
     }
 
-    // ── Strategi 2: Angka menonjol (standalone, terpencil di baris sendiri) ──
-    // Gmail mendeteksi angka 4-8 digit yang "sendirian" di baris = kemungkinan OTP
+    // ── Prioritas 3: Angka standalone di baris sendiri ────────
     const lines = text.split(/\n/);
     for (const line of lines) {
         const trimmed = line.trim();
-        // Hanya angka (dengan atau tanpa spasi di tengah), 4-8 digit total
         const standalone = trimmed.match(/^([\d]{3,4}\s[\d]{3,4}|[\d]{4,8})$/);
         if (standalone) {
             const cleaned = standalone[1].replace(/\s/g, "");
@@ -62,17 +62,23 @@ function extractOtp(text, subject = "") {
         }
     }
 
-    // ── Strategi 3: Cari kode di subject email ──
-    // Contoh: "Your code is 123456" / "[Service] Verification Code: 123456"
+    // ── Prioritas 4: Kode di subject email ───────────────────
     const subjectMatch = subject.match(/\b(\d{4,8})\b/);
     if (subjectMatch) return subjectMatch[1];
 
-    // ── Strategi 4: Magic link verifikasi ──
-    // Jika tidak ada angka OTP, cari URL verifikasi/konfirmasi
-    const linkMatch = text.match(/https?:\/\/[^\s]+(?:verif|confirm|activate|reset|token|magic)[^\s]*/i);
+    // ── Prioritas 5: Magic link verifikasi ───────────────────
+    const linkMatch = text.match(
+        /https?:\/\/[^\s]+(?:verif|confirm|activat|reset|token|magic|click|auth|signup|register|validat|rp[=&]|password|account\/confirm|email\/confirm)[^\s]*/i
+    );
     if (linkMatch) return linkMatch[0];
 
-    return null; // Tidak ditemukan
+    // ── Prioritas 6: URL panjang standalone ──────────────────
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^https?:\/\/.{40,}/.test(trimmed)) return trimmed;
+    }
+
+    return null;
 }
 
 export default {
@@ -98,10 +104,26 @@ export default {
             let html = parsed.html;
             html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
             html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+
+            // ── Selamatkan URL dari href SEBELUM strip tag ──
+            html = html.replace(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi, (_, href) => {
+                if (href.startsWith('http') && href.length > 20) return ` ${href} `;
+                return " ";
+            });
+
             html = html.replace(/<[^>]+>/g, " ");
             html = html.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
                 .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"');
-            bodyText = html.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+
+            // ── PERBAIKAN SPASI: trim setiap baris, hapus blank lines berulang ──
+            const lines = html.split("\n")
+                .map(l => l.trim())              // hapus leading/trailing space per baris
+                .filter((l, i, arr) => {
+                    // Izinkan max 1 baris kosong berturut-turut
+                    if (l === "" && (i === 0 || arr[i - 1] === "")) return false;
+                    return true;
+                });
+            bodyText = lines.join("\n").trim();
         }
 
         // ── Ekstrak OTP/Kode secara otomatis (seperti Gmail) ─────

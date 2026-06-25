@@ -17,10 +17,25 @@ async function parseEmail(rawEmail) {
         let html = parsed.html;
         html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
         html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+
+        // ── Selamatkan URL dari href SEBELUM strip tag ──
+        html = html.replace(/<a[^>]+href=["']([^"']+)["'][^>]*>/gi, (_, href) => {
+            if (href.startsWith('http') && href.length > 20) return ` ${href} `;
+            return " ";
+        });
+
         html = html.replace(/<[^>]+>/g, " ");
         html = html.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
             .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"');
-        bodyText = html.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+
+        // ── PERBAIKAN SPASI: trim per baris + hapus blank lines berulang ──
+        const lines = html.split("\n")
+            .map(l => l.trim())
+            .filter((l, i, arr) => {
+                if (l === "" && (i === 0 || arr[i - 1] === "")) return false;
+                return true;
+            });
+        bodyText = lines.join("\n").trim();
     }
 
     return { bodyText: bodyText.substring(0, 800), parsed };
@@ -58,8 +73,21 @@ function extractOtp(text, subject = "") {
     }
     const subjectMatch = subject.match(/\b(\d{4,8})\b/);
     if (subjectMatch) return subjectMatch[1];
-    const linkMatch = text.match(/https?:\/\/[^\s]+(?:verif|confirm|activate|reset|token|magic)[^\s]*/i);
+
+    // Strategi 4: URL dengan keyword verifikasi/reset
+    const linkMatch = text.match(
+        /https?:\/\/[^\s]+(?:verif|confirm|activat|reset|token|magic|click|auth|signup|register|validat|rp[=&]|password|account\/confirm|email\/confirm)[^\s]*/i
+    );
     if (linkMatch) return linkMatch[0];
+
+    // Strategi 5: URL panjang standalone di baris sendiri = kemungkinan magic link
+    for (const line of text.split(/\n/)) {
+        const trimmed = line.trim();
+        if (/^https?:\/\/.{40,}/.test(trimmed)) {
+            return trimmed;
+        }
+    }
+
     return null;
 }
 
@@ -560,7 +588,269 @@ const tests = [
         raw: emailGrok,
         expectedOtp: "482051",
     },
+    {
+        name: "TEST 12 — Notion (HTML-only, link HANYA di href — KASUS BUG)",
+        from: "noreply@mail.notion.so",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Please verify your Notion email",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: noreply@mail.notion.so`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Please verify your Notion email`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<!DOCTYPE html><html><head>`,
+            `<style>body{font-family:sans-serif;}.btn{background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:4px;}</style>`,
+            `</head><body>`,
+            `<h2>Verify your email address</h2>`,
+            `<p>Click below to verify your email and get started with Notion.</p>`,
+            `<a href="https://www.notion.so/verify-email?token=eyJhbGciOiJIUzI1NiJ9.abc123.signature" class="btn">Verify Email</a>`,
+            `<p style="color:#888;font-size:12px">This link expires in 24 hours.</p>`,
+            `</body></html>`,
+        ].join(CRLF),
+        expectedLink: "notion.so",
+    },
+    {
+        name: "TEST 13 — Shopify (HTML-only, URL total tersembunyi di href button)",
+        from: "no-reply@shopify.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Confirm your account",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: no-reply@shopify.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Confirm your account`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<!DOCTYPE html><html><body style="font-family:Arial;padding:20px">`,
+            `<h1>Confirm your email</h1>`,
+            `<p>Please confirm your email by clicking below.</p>`,
+            `<a href="https://accounts.shopify.com/confirm?confirmation_token=abc123xyz&email=test%40example.com" style="background:#96BF48;color:#fff;padding:15px 30px;text-decoration:none;border-radius:4px">Confirm account</a>`,
+            `<p>If you didn't create this account, please ignore this email.</p>`,
+            `</body></html>`,
+        ].join(CRLF),
+        expectedLink: "shopify.com",
+    },
+
+    // ─── TEST 14: Discord (multipart/alternative + link di text/plain) ───
+    {
+        name: "TEST 14 — Discord (multipart + link di text/plain, bukan HTML)",
+        from: "noreply@discord.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Verify your email address",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: noreply@discord.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Verify your email address`,
+            `Content-Type: multipart/alternative; boundary="discord_boundary_001"`,
+            ``,
+            `--discord_boundary_001`,
+            `Content-Type: text/plain; charset=UTF-8`,
+            ``,
+            `Verify your Discord email`,
+            ``,
+            `Click the link below to verify your email address:`,
+            `https://click.discord.com/ls/click?upn=verify&email=jaranggoyang&token=Abc123Xyz789DefGhi456JklMno`,
+            ``,
+            `This link expires in 24 hours.`,
+            `If you didn't create a Discord account, you can safely ignore this email.`,
+            ``,
+            `- The Discord Team`,
+            ``,
+            `--discord_boundary_001`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<html><body>`,
+            `<h2>Verify your email</h2>`,
+            `<a href="https://click.discord.com/ls/click?upn=verify&email=jaranggoyang&token=Abc123Xyz789DefGhi456JklMno">Verify Email</a>`,
+            `</body></html>`,
+            ``,
+            `--discord_boundary_001--`,
+        ].join(CRLF),
+        expectedLink: "discord.com",
+    },
+
+    // ─── TEST 15: Slack (HTML-only, QP + magic link panjang) ───
+    {
+        name: "TEST 15 — Slack (HTML-only, QP encoding, magic link panjang)",
+        from: "no-reply@slack.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Confirm your email address",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: no-reply@slack.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Confirm your email address`,
+            `Content-Type: text/html; charset=UTF-8`,
+            `Content-Transfer-Encoding: quoted-printable`,
+            ``,
+            `<!DOCTYPE html><html><head>`,
+            `<meta charset=3D"UTF-8">`,
+            `<style>`,
+            `body { font-family: Slack-Lato, appleLogo, sans-serif; background: #f8f8f8; }`,
+            `.btn { background: #4A154B; color: #fff; padding: 12px 32px; border-radius: 4px; =`,
+            `text-decoration: none; font-weight: bold; }`,
+            `</style></head><body>`,
+            `<table width=3D"100%" cellpadding=3D"30"><tr><td>`,
+            `<img src=3D"https://a.slack-edge.com/bv1-6/slack_logo.png" alt=3D"Slack" wid=`,
+            `th=3D"100">`,
+            `<h2>Confirm your email</h2>`,
+            `<p>Please confirm your email address to start using Slack:</p>`,
+            `<a href=3D"https://slack.com/account/email-confirm/=`,
+            `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImphcmFuZ2dveWFuZ0B1bml=`,
+            `yYW1hbGFuZy5ldS5jYyIsImV4cCI6MTc1MjAwMDAwMH0.slackSig123" class=3D"btn">=`,
+            `Confirm Email</a>`,
+            `<p style=3D"color:#888;font-size:12px">This link will expire in 24 hours.</p>`,
+            `</td></tr></table>`,
+            `</body></html>`,
+        ].join(CRLF),
+        expectedLink: "slack.com",
+    },
+
+    // ─── TEST 16: Figma (HTML-only, link konfirmasi di anchor) ───
+    {
+        name: "TEST 16 — Figma (HTML-only, link di anchor, no numeric OTP)",
+        from: "noreply@figma.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Confirm your Figma account",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: noreply@figma.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Confirm your Figma account`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<!DOCTYPE html><html><body style="font-family:Inter,Arial;background:#1e1e1e;color:#fff;padding:40px">`,
+            `<h1 style="color:#f24e1e">Figma</h1>`,
+            `<h2>Confirm your account</h2>`,
+            `<p>Click the link below to confirm your Figma account:</p>`,
+            `<a href="https://www.figma.com/auth/confirm?token=FigmaToken_AbCdEfGhIjKlMnOpQrStUv_1234567890&source=email_confirm" style="background:#f24e1e;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;display:inline-block">Confirm Account</a>`,
+            `<p style="color:#999;font-size:13px;margin-top:24px">If you didn't create a Figma account, please ignore this email.</p>`,
+            `</body></html>`,
+        ].join(CRLF),
+        expectedLink: "figma.com",
+    },
+
+    // ─── TEST 17: LinkedIn (multipart, QP, link di text/plain) ───
+    {
+        name: "TEST 17 — LinkedIn (multipart/alternative, QP, link di text/plain)",
+        from: "messages-noreply@linkedin.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Please verify your email address",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: messages-noreply@linkedin.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Please verify your email address`,
+            `Content-Type: multipart/alternative; boundary="li_boundary_verify_001"`,
+            ``,
+            `--li_boundary_verify_001`,
+            `Content-Type: text/plain; charset=UTF-8`,
+            `Content-Transfer-Encoding: quoted-printable`,
+            ``,
+            `Hi jaranggoyang,`,
+            ``,
+            `Please verify your email address by clicking the link below:`,
+            ``,
+            `https://www.linkedin.com/uas/email-api/verifyEmail?tok=3DAQGPxyz123AbcDefGh=`,
+            `iJklMnoPqrStuVwxYz1234567890abcdefghijklmnopqrstuvwxyz&trk=3Deml_verify_ema=`,
+            `il`,
+            ``,
+            `This link expires in 3 days.`,
+            ``,
+            `The LinkedIn Team`,
+            ``,
+            `--li_boundary_verify_001`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<html><body><p>Please <a href="https://www.linkedin.com/uas/email-api/verifyEmail?tok=AQGPxyz123">verify your email</a>.</p></body></html>`,
+            ``,
+            `--li_boundary_verify_001--`,
+        ].join(CRLF),
+        expectedLink: "linkedin.com",
+    },
+
+    // ─── TEST 18: Zoom (HTML-only, activate account link) ───
+    {
+        name: "TEST 18 — Zoom (HTML-only, activate account link)",
+        from: "no-reply@zoom.us",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "Please activate your Zoom account",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: no-reply@zoom.us`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: Please activate your Zoom account`,
+            `Content-Type: text/html; charset=UTF-8`,
+            `Content-Transfer-Encoding: quoted-printable`,
+            ``,
+            `<!DOCTYPE html><html><head><style>`,
+            `body { font-family: Arial, sans-serif; background: #f3f3f3; }`,
+            `.container { max-width: 600px; margin: 0 auto; background: #fff; padding: 40px; }`,
+            `.btn { background: #2D8CFF; color: #fff; padding: 14px 32px; =`,
+            `text-decoration: none; border-radius: 4px; font-size: 16px; }`,
+            `</style></head><body>`,
+            `<div class=3D"container">`,
+            `<img src=3D"https://d24cgw3uvb9a9h.cloudfront.net/static/94115/image/new/ZoomLogo.png" =`,
+            `alt=3D"Zoom" width=3D"120">`,
+            `<h2>Activate your Zoom account</h2>`,
+            `<p>Hi jaranggoyang,</p>`,
+            `<p>An account has been created for you. Please activate your account by clicking=`,
+            ` the button below:</p>`,
+            `<a href=3D"https://zoom.us/activate?code=3DzoomActivate_AbcDef123GhiJkl456=`,
+            `MnoPqr789StuVwx012&source=3Demail" class=3D"btn">Activate Account</a>`,
+            `<p style=3D"color:#999;font-size:12px">This link expires in 24 hours.</p>`,
+            `</div></body></html>`,
+        ].join(CRLF),
+        expectedLink: "zoom.us",
+    },
+
+    // ─── TEST 19: WordPress (reset password, link di text/plain) ───
+    {
+        name: "TEST 19 — WordPress (reset password, plain text + HTML, link panjang)",
+        from: "wordpress@yourdomain.com",
+        to: "jaranggoyang@uniramalang.eu.cc",
+        subject: "[Your Site] Password Reset",
+        raw: [
+            `MIME-Version: 1.0`,
+            `From: wordpress@yourdomain.com`,
+            `To: jaranggoyang@uniramalang.eu.cc`,
+            `Subject: [Your Site] Password Reset`,
+            `Content-Type: multipart/alternative; boundary="wp_boundary_reset"`,
+            ``,
+            `--wp_boundary_reset`,
+            `Content-Type: text/plain; charset=UTF-8`,
+            ``,
+            `Someone has requested a password reset for the following account:`,
+            ``,
+            `Site Name: Your Site`,
+            `Username: jaranggoyang`,
+            ``,
+            `If this was a mistake, ignore this email and nothing will happen.`,
+            ``,
+            `To reset your password, visit the following address:`,
+            ``,
+            `https://yoursite.com/wp-login.php?action=rp&key=AbcDefGhiJklMno123456&login=jaranggoyang&wp_lang=id_ID`,
+            ``,
+            `This link will expire in 24 hours.`,
+            ``,
+            `--wp_boundary_reset`,
+            `Content-Type: text/html; charset=UTF-8`,
+            ``,
+            `<html><body>`,
+            `<p>Someone has requested a password reset for:</p>`,
+            `<p><strong>Username:</strong> jaranggoyang</p>`,
+            `<p><a href="https://yoursite.com/wp-login.php?action=rp&key=AbcDefGhiJklMno123456&login=jaranggoyang">Reset Password</a></p>`,
+            `</body></html>`,
+            ``,
+            `--wp_boundary_reset--`,
+        ].join(CRLF),
+        expectedLink: "yoursite.com",
+    },
 ];
+
 
 
 console.log("=".repeat(60));
@@ -581,11 +871,13 @@ let failed = 0;
         const hasCss = /(@font-face|font-family\s*:|text-decoration\s*:|mso-style|ExternalClass|\.es-button|@media\s+only)/i.test(result);
         const hasHtmlTag = /<[a-z][\s\S]*?>/i.test(result);
         const hasQpLeak = /=[A-F0-9]{2}(?!\w)/i.test(result) || /=\r?\n/.test(result);
-        const otpFound = t.expectedOtp ? result.includes(t.expectedOtp) : true;
-        const ok = !hasCss && !hasHtmlTag && !hasQpLeak && otpFound && result.trim().length > 0;
 
-        // ── Coba ekstrak OTP ──────────────────────────────────────
+        // ── Coba ekstrak OTP/Link ─────────────────────────────────
         const detectedOtp = extractOtp(result, subject);
+
+        const otpFound  = t.expectedOtp  ? result.includes(t.expectedOtp)           : true;
+        const linkFound = t.expectedLink ? (detectedOtp || "").includes(t.expectedLink) : true;
+        const ok = !hasCss && !hasHtmlTag && !hasQpLeak && otpFound && linkFound && result.trim().length > 0;
 
         console.log("\n" + "─".repeat(60));
         console.log(`📧  ${t.name}`);
@@ -595,29 +887,31 @@ let failed = 0;
         console.log(`\n📝  Body Parsing:\n`);
         console.log(result.substring(0, 300) + (result.length > 300 ? "\n..." : ""));
 
-        // Tampilkan hasil OTP detection
+        // Tampilkan hasil OTP/link detection
         if (detectedOtp) {
             if (detectedOtp.startsWith("http")) {
-                console.log(`\n🔗  Link Verifikasi (auto-detected):\n   ${detectedOtp.substring(0, 80)}...`);
+                console.log(`\n🔗  Link Verifikasi (auto-detected):\n   ${detectedOtp.substring(0, 90)}...`);
             } else {
                 console.log(`\n🔑  OTP Terdeteksi: ┌──────────────┐`);
                 console.log(`                   │  ${detectedOtp.padEnd(12)}│`);
                 console.log(`                   └──────────────┘`);
             }
         } else {
-            console.log(`\n🔍  OTP: tidak terdeteksi otomatis`);
+            console.log(`\n🔍  OTP/Link: tidak terdeteksi otomatis`);
         }
 
-        console.log("\n" + (ok ? "✅  LULUS — Output bersih, OTP terbaca" : "❌  GAGAL!"));
+        console.log("\n" + (ok ? "✅  LULUS — Output bersih, OTP/Link terbaca" : "❌  GAGAL!"));
 
         if (ok) passed++;
         else {
             failed++;
-            if (hasCss)     console.log("   ⚠️  Terdeteksi: CSS masih bocor ke output");
-            if (hasHtmlTag) console.log("   ⚠️  Terdeteksi: Tag HTML dalam output");
-            if (hasQpLeak)  console.log("   ⚠️  Terdeteksi: Sisa karakter QP (=XX atau = di ujung baris)");
-            if (!otpFound)  console.log(`   ⚠️  OTP '${t.expectedOtp}' tidak ditemukan dalam output`);
+            if (hasCss)      console.log("   ⚠️  Terdeteksi: CSS masih bocor ke output");
+            if (hasHtmlTag)  console.log("   ⚠️  Terdeteksi: Tag HTML dalam output");
+            if (hasQpLeak)   console.log("   ⚠️  Terdeteksi: Sisa karakter QP (=XX atau = di ujung baris)");
+            if (!otpFound)   console.log(`   ⚠️  OTP '${t.expectedOtp}' tidak ditemukan dalam output`);
+            if (!linkFound)  console.log(`   ⚠️  Link '${t.expectedLink}' tidak terdeteksi oleh extractOtp`);
         }
+
     }
 
     console.log("\n" + "=".repeat(60));

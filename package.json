@@ -11,6 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@onedaydevelopers/otp-detector": "^1.1.1",
     "postal-mime": "^2.7.5"
   }
 }
