@@ -1,7 +1,49 @@
 import PostalMime from "postal-mime";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const { extractOTP: libExtractOTP } = require("@onedaydevelopers/otp-detector");
+
+// ═══════════════════════════════════════════════════════════
+// ── Inline OTP Detector (dari @onedaydevelopers/otp-detector)
+// Tidak pakai import/require agar 100% kompatibel Cloudflare Workers
+// ═══════════════════════════════════════════════════════════
+function _libExtractOTP(val) {
+    if (!val) return null;
+    const positiveKeywords = [
+        'code', 'otp', 'one-time', 'one time', 'pin', 'verification', 'verify',
+        'auth', 'authentication', 'your code', 'verification code', 'is your',
+        'use code', 'enter', 'sent', 'expires', 'reset', 'login', 'security',
+        'confirmation code', 'security code', 'login code'
+    ];
+    const negativeKeywords = [
+        'order', 'invoice', 'tracking', 'amount', 'total', 'balance', 'receipt',
+        'transaction', 'date', 'booking', 'payment', 'order id', 'ref', 'reference',
+        'road', 'street', 'avenue', 'copyright', 'rights reserved', 'unsubscribe',
+    ];
+    const neighborhood = 80;
+    const otpRegex = /\b(\d{4,8}|\d{3,4}[-\s]\d{3,4})\b/g;
+    otpRegex.lastIndex = 0;
+    let match;
+    while ((match = otpRegex.exec(val)) !== null) {
+        const rawOtp = match[1];
+        const clean  = rawOtp.replace(/[-\s]/g, '');
+        if (clean.length < 4 || clean.length > 8) continue;
+        const idx    = match.index;
+        const ctx    = val.substring(Math.max(0, idx - neighborhood), idx + rawOtp.length + neighborhood);
+        const ctxL   = ctx.toLowerCase();
+        // Skip if looks like date/time
+        if (/\b\d{1,2}[\/\-]\d{1,2}([:\/\-]\d{2,4})?\b|\b(am|pm|gmt|utc)\b/i.test(ctx)) continue;
+        const strongPos = ['otp','verification code','security code','login code','confirmation code','one-time','one time','auth code'];
+        const isStrong  = strongPos.some(k => ctxL.includes(k)) || /code[:\s]*$/.test(ctxL.slice(0, idx - Math.max(0, idx - neighborhood)).slice(-12));
+        if (!isStrong) {
+            const negRx = new RegExp(`\\b(${negativeKeywords.join('|')})\\b`, 'i');
+            if (negRx.test(ctxL)) continue;
+        }
+        const before = ctxL.slice(0, idx - Math.max(0, idx - neighborhood));
+        if (/code[:\s]*$/.test(before.slice(-12))) return clean;
+        if (positiveKeywords.some(k => ctxL.includes(k))) return clean;
+        const fallbackRx = /(\d{4,8}|\d{3,4}[-\s]\d{3,4})[^\S\r\n]{0,8}(is|is your|is the|is a)\s+(([a-z0-9]+\s+){0,3})?(code|otp|pin|confirmation code)/i;
+        if (/code[:\s]*(\d{4,8}|\d{3,4}[-\s]\d{3,4})/i.test(ctx) || fallbackRx.test(ctx)) return clean;
+    }
+    return null;
+}
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║              KONFIGURASI FALLBACK (LOKAL)               ║
@@ -29,7 +71,7 @@ const CONFIG = {
 function extractOtp(text, subject = "") {
     // ── Prioritas 1: Library (lebih akurat untuk OTP angka) ──
     try {
-        const libResult = libExtractOTP(text);
+        const libResult = _libExtractOTP(text);
         if (libResult !== null && libResult !== undefined) {
             return String(libResult);
         }

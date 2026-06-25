@@ -1,17 +1,20 @@
 {
   "name": "email-routing-extractor-pharsing",
   "version": "1.0.0",
-  "description": "",
+  "description": "Cloudflare Email Routing Worker — parse MIME email & kirim OTP/link ke Telegram",
   "main": "receive-email.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test-simulate.mjs",
+    "compare": "node test-compare.mjs"
   },
-  "keywords": [],
+  "keywords": ["cloudflare", "email-routing", "otp", "telegram"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "@onedaydevelopers/otp-detector": "^1.1.1",
     "postal-mime": "^2.7.5"
+  },
+  "devDependencies": {
+    "@onedaydevelopers/otp-detector": "^1.1.1"
   }
 }
