@@ -1,17 +1,24 @@
 import PostalMime from "postal-mime";
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║                    KONFIGURASI UTAMA                    ║
+// ║   Isi nilai di bawah ini, lalu deploy ke Cloudflare     ║
+// ╚══════════════════════════════════════════════════════════╝
+
+const CONFIG = {
+    // Token bot Telegram (dari @BotFather)
+    TELEGRAM_BOT_TOKEN: "ISI_BOT_TOKEN_ANDA_DISINI",
+
+    // Chat ID Telegram tujuan notifikasi (dari @userinfobot)
+    TELEGRAM_CHAT_ID: "ISI_CHAT_ID_ANDA_DISINI",
+};
+
+// ═══════════════════════════════════════════════════════════
+
 export default {
     async email(message, env, ctx) {
-        // ── Baca secrets dari Cloudflare Workers Environment ─────
-        // Set via: wrangler secret put TELEGRAM_BOT_TOKEN
-        //          wrangler secret put TELEGRAM_CHAT_ID
-        const botToken = env.TELEGRAM_BOT_TOKEN;
-        const chatId   = env.TELEGRAM_CHAT_ID;
-
-        if (!botToken || !chatId) {
-            console.error("[ERROR] TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diset di Cloudflare Workers secrets!");
-            return;
-        }
+        const botToken = CONFIG.TELEGRAM_BOT_TOKEN;
+        const chatId   = CONFIG.TELEGRAM_CHAT_ID;
 
         const from = message.from;
         const to = message.to;
