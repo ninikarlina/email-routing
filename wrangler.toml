@@ -1,4 +1,4 @@
-name = "email-routing-extractor"
+name = "email-routing"
 main = "receive-email.js"
 compatibility_date = "2024-01-01"
 
