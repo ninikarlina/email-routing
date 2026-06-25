@@ -1,8 +1,10 @@
 import PostalMime from "postal-mime";
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║                    KONFIGURASI UTAMA                    ║
-// ║   Isi nilai di bawah ini, lalu deploy ke Cloudflare     ║
+// ║              KONFIGURASI FALLBACK (LOKAL)               ║
+// ║  Dipakai saat testing lokal / jika env belum diset      ║
+// ║  Untuk PRODUCTION → isi via Cloudflare Dashboard:       ║
+// ║  Workers → Settings → Variables & Secrets               ║
 // ╚══════════════════════════════════════════════════════════╝
 
 const CONFIG = {
@@ -17,8 +19,9 @@ const CONFIG = {
 
 export default {
     async email(message, env, ctx) {
-        const botToken = CONFIG.TELEGRAM_BOT_TOKEN;
-        const chatId   = CONFIG.TELEGRAM_CHAT_ID;
+        // Prioritas: ambil dari Cloudflare Dashboard dulu, fallback ke CONFIG
+        const botToken = env.TELEGRAM_BOT_TOKEN || CONFIG.TELEGRAM_BOT_TOKEN;
+        const chatId   = env.TELEGRAM_CHAT_ID   || CONFIG.TELEGRAM_CHAT_ID;
 
         const from = message.from;
         const to = message.to;
