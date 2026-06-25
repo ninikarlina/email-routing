@@ -138,7 +138,7 @@ const emailDeepSeek = [
     `--MIXED_BOUNDARY_DS_123--`,
 ].join(CRLF);
 
-// ─── TEST 3: Email plain text biasa (tanpa multipart) ───
+// ─── TEST 3: Email  text biasa (tanpa multipart) ───
 const emailPlainOnly = [
     `MIME-Version: 1.0`,
     `From: support@github.com`,
