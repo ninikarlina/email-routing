@@ -1,0 +1,26 @@
+name = "email-routing-otp"
+main = "receive-email.js"
+compatibility_date = "2024-01-01"
+
+# ──────────────────────────────────────────────
+# Variabel NON-SENSITIF boleh disimpan di sini
+# ──────────────────────────────────────────────
+[vars]
+# Contoh variabel biasa (bukan rahasia):
+# APP_NAME = "Email OTP Router"
+
+# ──────────────────────────────────────────────
+# ⚠️  JANGAN simpan BOT TOKEN atau CHAT ID di sini!
+# Gunakan Cloudflare Secrets:
+#
+#   wrangler secret put TELEGRAM_BOT_TOKEN
+#   wrangler secret put TELEGRAM_CHAT_ID
+#
+# Secrets tersimpan terenkripsi di Cloudflare,
+# TIDAK masuk ke kode atau Git.
+# ──────────────────────────────────────────────
+
+# Konfigurasi Email Routing
+[email]
+# Worker ini akan dipanggil saat ada email masuk
+# Setup di Cloudflare Dashboard → Email → Email Routing
